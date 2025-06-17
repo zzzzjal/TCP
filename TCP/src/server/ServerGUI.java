@@ -4,61 +4,72 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
-import java.net.*;
-import java.sql.*;
-import java.util.*;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.util.List;
-import java.util.concurrent.*;
-import com.sun.net.httpserver.*;
+import java.util.ArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import util.Base64Util;
 
 public class ServerGUI {
-    // 服务器配置
-    private static final String SERVER_VERSION = "1.1";
-    private static final int TCP_SERVER_PORT = 54321;
-    private static final int HTTP_SERVER_PORT = 54322;
-    private static final String DOWNLOAD_PATH = "/download/client.jar";
+    private static final int SERVER_PORT = 54321;  // 服务器监听端口
 
-    // UI组件
-    private JFrame frame;
-    private JTextArea textArea;
-    private JTextField sendField;
-    private JButton sendButton;
+    private JFrame frame;               // 主窗口
+    private JTextArea textArea;        // 消息显示区域
+    private JTextField sendField;      // 消息发送输入框
+    private JButton sendButton;        // 发送按钮
+    private ServerSocket serverSocket; // 服务器套接字
+    private ExecutorService executor;  // 线程池
+    private final List<BufferedWriter> clientWriters = new ArrayList<>(); // 客户端输出流列表
 
-    // 网络组件
-    private ServerSocket tcpServerSocket;
-    private HttpServer httpServer;
-    private ExecutorService executor;
-    private final List<BufferedWriter> clientWriters = new ArrayList<>();
-
+    // 版本信息内部类
+    private static class VersionInfo {
+        public static final String CURRENT_VERSION = "v1.1";
+        // 添加国内快速镜像源
+        public static final String[] UPGRADE_URLS = {
+                "https://github.com/zzzzjal/TCP/releases/download/" + CURRENT_VERSION + "/TCP.jar",
+                "https://mirrors.aliyun.com/TCP/" + CURRENT_VERSION + "/TCP.jar",
+                "https://mirrors.tuna.tsinghua.edu.cn/TCP/" + CURRENT_VERSION + "/TCP.jar",
+                "https://mirrors.huaweicloud.com/TCP/" + CURRENT_VERSION + "/TCP.jar"
+        };
+    }
     public static void main(String[] args) {
+        // 在事件调度线程中初始化GUI
         EventQueue.invokeLater(() -> {
             try {
-                SqliteUtil.initDatabase();
-                ServerGUI window = new ServerGUI();
-                window.frame.setVisible(true);
-                window.startServers();
+                SqliteUtil.initDatabase();  // 初始化数据库
+                ServerGUI window = new ServerGUI();  // 创建服务器窗口
+                window.frame.setVisible(true);  // 显示窗口
+                window.startServer();  // 启动服务器
             } catch (Exception e) {
                 JOptionPane.showMessageDialog(null, "服务器启动失败: " + e.getMessage());
             }
         });
     }
 
+    // 构造函数
     public ServerGUI() {
-        initializeGUI();
+        initializeGUI();  // 初始化GUI界面
     }
 
+    // 初始化GUI界面
     private void initializeGUI() {
-        frame = new JFrame("TCP Server (TCP:" + TCP_SERVER_PORT + " HTTP:" + HTTP_SERVER_PORT + ")");
+        frame = new JFrame("TCP Server");
         frame.setBounds(100, 100, 600, 550);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.getContentPane().setLayout(new BorderLayout(0, 0));
-        frame.setLocationRelativeTo(null);
+        frame.setLocationRelativeTo(null);  // 窗口居中
 
+        // 消息显示区域
         textArea = new JTextArea();
         textArea.setEditable(false);
         frame.getContentPane().add(new JScrollPane(textArea), BorderLayout.CENTER);
 
+        // 底部面板
         JPanel bottomPanel = new JPanel(new BorderLayout(5, 5));
         sendField = new JTextField();
         sendButton = new JButton("发送给所有客户端");
@@ -66,110 +77,61 @@ public class ServerGUI {
         bottomPanel.add(sendButton, BorderLayout.EAST);
         frame.getContentPane().add(bottomPanel, BorderLayout.SOUTH);
 
+        // 发送按钮事件监听
         sendButton.addActionListener(e -> sendBroadcastMessage());
 
+        // 窗口关闭事件监听
         frame.addWindowListener(new WindowAdapter() {
             public void windowClosing(WindowEvent e) {
-                shutdownServers();
+                shutdownServer();  // 关闭服务器
             }
         });
     }
 
-    private void startServers() {
-        executor = Executors.newCachedThreadPool();
-
-        // 启动TCP服务器
-        executor.execute(this::startTcpServer);
-
-        // 启动HTTP服务器
-        executor.execute(this::startHttpServer);
-    }
-
-    private void startTcpServer() {
-        try {
-            tcpServerSocket = new ServerSocket(TCP_SERVER_PORT);
-            appendMessage("[TCP] 服务器启动，监听端口：" + TCP_SERVER_PORT);
-
-            while (!tcpServerSocket.isClosed()) {
-                Socket clientSocket = tcpServerSocket.accept();
-                appendMessage("[TCP] 客户端已连接：" + clientSocket.getInetAddress());
-
-                BufferedWriter writer = new BufferedWriter(
-                        new OutputStreamWriter(clientSocket.getOutputStream()));
-
-                synchronized (clientWriters) {
-                    clientWriters.add(writer);
-                }
-
-                executor.execute(new ClientHandler(clientSocket, writer));
-            }
-        } catch (IOException e) {
-            if (!tcpServerSocket.isClosed()) {
-                appendMessage("[TCP] 服务器异常: " + e.getMessage());
-            }
-        }
-    }
-
-    private void startHttpServer() {
-        try {
-            httpServer = HttpServer.create(new InetSocketAddress(HTTP_SERVER_PORT), 0);
-            httpServer.createContext(DOWNLOAD_PATH, new HttpFileHandler());
-            httpServer.setExecutor(null);
-            httpServer.start();
-            appendMessage("[HTTP] 文件服务器启动，端口：" + HTTP_SERVER_PORT);
-            appendMessage("[HTTP] 文件下载地址: http://" + getLocalIP() + ":" + HTTP_SERVER_PORT + DOWNLOAD_PATH);
-        } catch (IOException e) {
-            appendMessage("[HTTP] 服务器启动失败: " + e.getMessage());
-        }
-    }
-
-    private String getLocalIP() {
-        try {
-            return InetAddress.getLocalHost().getHostAddress();
-        } catch (UnknownHostException e) {
-            return "localhost";
-        }
-    }
-
-    class HttpFileHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            if ("GET".equals(exchange.getRequestMethod())) {
-                File file = new File("client.jar");
-                if (file.exists()) {
-                    exchange.getResponseHeaders().set("Content-Type", "application/java-archive");
-                    exchange.sendResponseHeaders(200, file.length());
-
-                    try (OutputStream os = exchange.getResponseBody();
-                         FileInputStream fis = new FileInputStream(file)) {
-                        byte[] buffer = new byte[4096];
-                        int bytesRead;
-                        while ((bytesRead = fis.read(buffer)) != -1) {
-                            os.write(buffer, 0, bytesRead);
-                        }
-                    }
-                    appendMessage("[HTTP] 客户端下载文件: " + file.getName());
-                } else {
-                    String response = "404 File Not Found";
-                    exchange.sendResponseHeaders(404, response.length());
-                    exchange.getResponseBody().write(response.getBytes());
-                    appendMessage("[HTTP] 文件未找到: client.jar");
-                }
-            }
-            exchange.close();
-        }
-    }
-
+    // 广播消息给所有客户端
     private void sendBroadcastMessage() {
         String raw = sendField.getText().trim();
         if (!raw.isEmpty()) {
-            String encoded = Base64Util.encode(raw);
+            String encoded = Base64Util.encode(raw);  // Base64编码
             broadcastToClients(encoded);
-            appendMessage("[TCP] 服务器发送: " + raw);
+            appendMessage("服务器发送: " + raw);
             sendField.setText("");
         }
     }
 
+    // 启动服务器
+    private void startServer() {
+        executor = Executors.newCachedThreadPool();  // 创建线程池
+        executor.execute(() -> {
+            try {
+                serverSocket = new ServerSocket(SERVER_PORT);
+                appendMessage("服务器启动，监听端口：" + SERVER_PORT);
+
+                while (!serverSocket.isClosed()) {
+                    Socket clientSocket = serverSocket.accept();  // 接受客户端连接
+                    appendMessage("客户端已连接：" + clientSocket.getInetAddress());
+
+                    // 创建客户端输出流
+                    BufferedWriter writer = new BufferedWriter(
+                            new OutputStreamWriter(clientSocket.getOutputStream()));
+
+                    // 将输出流添加到列表
+                    synchronized (clientWriters) {
+                        clientWriters.add(writer);
+                    }
+
+                    // 为客户端创建处理线程
+                    executor.execute(new ClientHandler(clientSocket, writer));
+                }
+            } catch (IOException e) {
+                if (!serverSocket.isClosed()) {
+                    appendMessage("服务器异常: " + e.getMessage());
+                }
+            }
+        });
+    }
+
+    // 广播消息给所有客户端
     private void broadcastToClients(String encodedMessage) {
         synchronized (clientWriters) {
             for (BufferedWriter writer : new ArrayList<>(clientWriters)) {
@@ -177,13 +139,14 @@ public class ServerGUI {
                     writer.write(encodedMessage + "\n");
                     writer.flush();
                 } catch (IOException e) {
-                    appendMessage("[TCP] 向客户端发送失败: " + e.getMessage());
+                    appendMessage("向客户端发送失败: " + e.getMessage());
                     clientWriters.remove(writer);
                 }
             }
         }
     }
 
+    // 在消息区域追加消息
     private void appendMessage(String message) {
         SwingUtilities.invokeLater(() -> {
             textArea.append(message + "\n");
@@ -191,24 +154,15 @@ public class ServerGUI {
         });
     }
 
-    private void shutdownServers() {
+    // 关闭服务器
+    private void shutdownServer() {
         try {
-            // 关闭TCP服务器
-            if (tcpServerSocket != null && !tcpServerSocket.isClosed()) {
-                tcpServerSocket.close();
+            if (serverSocket != null && !serverSocket.isClosed()) {
+                serverSocket.close();
             }
-
-            // 关闭HTTP服务器
-            if (httpServer != null) {
-                httpServer.stop(0);
-            }
-
-            // 关闭线程池
             if (executor != null) {
                 executor.shutdownNow();
             }
-
-            // 关闭所有客户端连接
             synchronized (clientWriters) {
                 for (BufferedWriter writer : clientWriters) {
                     try {
@@ -217,16 +171,15 @@ public class ServerGUI {
                 }
                 clientWriters.clear();
             }
-
-            appendMessage("服务器已关闭");
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
+    // 客户端处理线程
     class ClientHandler implements Runnable {
-        private final Socket socket;
-        private final BufferedWriter writer;
+        private final Socket socket;      // 客户端套接字
+        private final BufferedWriter writer;  // 客户端输出流
 
         public ClientHandler(Socket socket, BufferedWriter writer) {
             this.socket = socket;
@@ -240,17 +193,19 @@ public class ServerGUI {
 
                 String line;
                 while ((line = in.readLine()) != null) {
-                    if (line.startsWith("VERSION|")) {
-                        handleVersionCheck(line, writer);
+                    // 根据消息类型处理不同请求
+                    if (line.startsWith("VERSION_CHECK|")) {
+                        handleVersionCheck(line, writer);  // 处理版本检查
                     } else if (line.startsWith("FILE|")) {
-                        handleFileUpload(line, writer, socket);
+                        handleFileUpload(line, writer, socket);  // 处理文件上传
                     } else {
-                        handleTextMessage(line, writer, socket);
+                        handleTextMessage(line, writer, socket);  // 处理文本消息
                     }
                 }
             } catch (IOException e) {
-                appendMessage("[TCP] 客户端连接异常: " + e.getMessage());
+                appendMessage("客户端连接异常: " + e.getMessage());
             } finally {
+                // 客户端断开连接时清理资源
                 synchronized (clientWriters) {
                     clientWriters.remove(writer);
                 }
@@ -260,72 +215,68 @@ public class ServerGUI {
             }
         }
 
+        // 处理版本检查请求
         private void handleVersionCheck(String line, BufferedWriter writer) throws IOException {
             String[] parts = line.split("\\|");
-            String clientVersion = parts.length >= 2 ? parts[1] : "";
+            String clientVersion = parts[1];
 
-            if (isNewerVersionAvailable(clientVersion)) {
-                String downloadUrl = "http://" + socket.getLocalAddress().getHostAddress() +
-                        ":" + HTTP_SERVER_PORT + DOWNLOAD_PATH;
-                String response = "UPDATE|" + SERVER_VERSION + "|" + downloadUrl;
-                writer.write(response + "\n");
-                appendMessage("[TCP] 客户端请求版本检查，发送更新: " + downloadUrl);
+            if (!VersionInfo.CURRENT_VERSION.equals(clientVersion)) {
+                writer.write("NEED_UPDATE|" + VersionInfo.CURRENT_VERSION + "|" +
+                        String.join("|", VersionInfo.UPGRADE_URLS) + "\n");
             } else {
-                writer.write("CURRENT\n");
-                appendMessage("[TCP] 客户端版本已是最新");
+                writer.write("CURRENT_VERSION\n");
             }
             writer.flush();
         }
 
-        private boolean isNewerVersionAvailable(String clientVersion) {
-            // 简化的版本比较逻辑
-            return !clientVersion.equals(SERVER_VERSION);
-        }
-
+        // 处理文件上传
         private void handleFileUpload(String line, BufferedWriter writer, Socket socket) throws IOException {
             String[] parts = line.split("\\|", 3);
             if (parts.length != 3) {
-                appendMessage("[TCP] 文件上传协议错误: " + line);
+                appendMessage("文件上传协议错误: " + line);
                 return;
             }
 
             String filename = parts[1];
             String base64Content = parts[2];
             try {
-                byte[] fileBytes = Base64Util.decodeToBytes(base64Content);
+                byte[] fileBytes = Base64Util.decode(base64Content);  // Base64解码
                 File uploadDir = new File("uploads");
                 if (!uploadDir.exists() && !uploadDir.mkdirs()) {
                     throw new IOException("无法创建上传目录");
                 }
 
+                // 保存文件
                 File outFile = new File(uploadDir, filename);
                 try (FileOutputStream fos = new FileOutputStream(outFile)) {
                     fos.write(fileBytes);
                 }
 
-                appendMessage("[TCP] 已保存文件: " + outFile.getAbsolutePath());
+                appendMessage("已保存文件: " + outFile.getAbsolutePath());
                 saveFileLog(socket.getInetAddress().toString(), filename, outFile.getAbsolutePath());
                 writer.write(Base64Util.encode("文件 " + filename + " 已接收并保存") + "\n");
             } catch (IOException e) {
-                appendMessage("[TCP] 保存文件失败: " + e.getMessage());
+                appendMessage("保存文件失败: " + e.getMessage());
                 writer.write(Base64Util.encode("保存文件失败: " + e.getMessage()) + "\n");
             }
             writer.flush();
         }
 
+        // 处理文本消息
         private void handleTextMessage(String line, BufferedWriter writer, Socket socket) throws IOException {
             try {
-                String decodedMessage = Base64Util.decode(line);
-                appendMessage("[TCP] 来自" + socket.getInetAddress() + "的消息: " + decodedMessage);
-                saveChatLog(socket.getInetAddress().toString(), decodedMessage);
+                String decodedMessage = Base64Util.decodeToString(line);  // Base64解码
+                appendMessage("来自" + socket.getInetAddress() + "的消息: " + decodedMessage);
+                saveChatLog(socket.getInetAddress().toString(), decodedMessage);  // 保存聊天记录
                 writer.write(Base64Util.encode("服务器已收到: " + decodedMessage) + "\n");
             } catch (IllegalArgumentException e) {
-                appendMessage("[TCP] 解码失败，收到非Base64格式数据: " + line);
+                appendMessage("解码失败，收到非Base64格式数据: " + line);
                 writer.write(Base64Util.encode("解码失败：无效的Base64数据") + "\n");
             }
             writer.flush();
         }
 
+        // 保存聊天记录到数据库
         private void saveChatLog(String clientAddr, String message) {
             String sql = "INSERT INTO chat_log(client_addr, message) VALUES(?, ?);";
             try (Connection conn = SqliteUtil.getConnection();
@@ -334,10 +285,11 @@ public class ServerGUI {
                 pstmt.setString(2, message);
                 pstmt.executeUpdate();
             } catch (SQLException e) {
-                appendMessage("[DB] 保存聊天记录失败: " + e.getMessage());
+                appendMessage("保存聊天记录失败: " + e.getMessage());
             }
         }
 
+        // 保存文件记录到数据库
         private void saveFileLog(String clientAddr, String filename, String path) {
             String sql = "INSERT INTO file_log(client_addr, filename, path) VALUES(?, ?, ?);";
             try (Connection conn = SqliteUtil.getConnection();
@@ -347,7 +299,7 @@ public class ServerGUI {
                 pstmt.setString(3, path);
                 pstmt.executeUpdate();
             } catch (SQLException e) {
-                appendMessage("[DB] 保存文件记录失败: " + e.getMessage());
+                appendMessage("保存文件记录失败: " + e.getMessage());
             }
         }
     }
