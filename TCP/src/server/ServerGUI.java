@@ -29,13 +29,30 @@ public class ServerGUI {
     // 版本信息内部类
     private static class VersionInfo {
         public static final String CURRENT_VERSION = "v1.1";
-        // 添加国内快速镜像源
-        public static final String[] UPGRADE_URLS = {
-                "https://github.com/zzzzjal/TCP/releases/download/" + CURRENT_VERSION + "/TCP.jar",
-                "https://mirrors.aliyun.com/TCP/" + CURRENT_VERSION + "/TCP.jar",
-                "https://mirrors.tuna.tsinghua.edu.cn/TCP/" + CURRENT_VERSION + "/TCP.jar",
-                "https://mirrors.huaweicloud.com/TCP/" + CURRENT_VERSION + "/TCP.jar"
-        };
+        public static final String UPDATE_URL = "https://github.com/zzzzjal/TCP/releases/download/" + CURRENT_VERSION + "/TCP.jar";
+
+        // 版本比较方法
+        public static boolean isNewerVersion(String version1, String version2) {
+            // 移除版本号中的'v'前缀
+            String v1 = version1.replace("v", "");
+            String v2 = version2.replace("v", "");
+            
+            // 分割版本号
+            String[] v1Parts = v1.split("\\.");
+            String[] v2Parts = v2.split("\\.");
+            
+            // 比较主版本号
+            int v1Major = Integer.parseInt(v1Parts[0]);
+            int v2Major = Integer.parseInt(v2Parts[0]);
+            if (v1Major != v2Major) {
+                return v1Major < v2Major;
+            }
+            
+            // 比较次版本号
+            int v1Minor = Integer.parseInt(v1Parts[1]);
+            int v2Minor = Integer.parseInt(v2Parts[1]);
+            return v1Minor < v2Minor;
+        }
     }
     public static void main(String[] args) {
         // 在事件调度线程中初始化GUI
@@ -220,9 +237,8 @@ public class ServerGUI {
             String[] parts = line.split("\\|");
             String clientVersion = parts[1];
 
-            if (!VersionInfo.CURRENT_VERSION.equals(clientVersion)) {
-                writer.write("NEED_UPDATE|" + VersionInfo.CURRENT_VERSION + "|" +
-                        String.join("|", VersionInfo.UPGRADE_URLS) + "\n");
+            if (VersionInfo.isNewerVersion(clientVersion, VersionInfo.CURRENT_VERSION)) {
+                writer.write("NEED_UPDATE|" + VersionInfo.CURRENT_VERSION + "|" + VersionInfo.UPDATE_URL + "\n");
             } else {
                 writer.write("CURRENT_VERSION\n");
             }

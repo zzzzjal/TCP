@@ -15,7 +15,7 @@ public class ClientGUI {
     private static final String SERVER_HOST = "localhost";
     private static final int SERVER_PORT = 54321;
     private static final AtomicBoolean isUpdating = new AtomicBoolean(false);
-    private static final String MIRROR_URL = "https://github.moeyy.xyz/https://github.com/zzzzjal/TCP/releases/download/v1.1/TCP.jar";
+    private static final String UPDATE_URL = "https://ghfile.geekertao.top/https://github.com/zzzzjal/TCP/releases/download/v1.1/TCP.jar";
 
     private JFrame frame;
     private JTextArea textArea;
@@ -27,6 +27,28 @@ public class ClientGUI {
     private static class VersionInfo {
         public static final String CURRENT_VERSION = "v1.0";
         public static final String NEW_VERSION = "v1.1";
+
+        public static boolean isNewerVersion(String clientVersion, String serverVersion) {
+            // 移除版本号中的'v'前缀
+            String cv = clientVersion.replace("v", "");
+            String sv = serverVersion.replace("v", "");
+
+            // 分割版本号
+            String[] cvParts = cv.split("\\.");
+            String[] svParts = sv.split("\\.");
+
+            // 比较主版本号
+            int cvMajor = Integer.parseInt(cvParts[0]);
+            int svMajor = Integer.parseInt(svParts[0]);
+            if (cvMajor != svMajor) {
+                return cvMajor < svMajor;
+            }
+
+            // 比较次版本号
+            int cvMinor = Integer.parseInt(cvParts[1]);
+            int svMinor = Integer.parseInt(svParts[1]);
+            return cvMinor < svMinor;
+        }
     }
 
     public ClientGUI() {
@@ -51,7 +73,7 @@ public class ClientGUI {
 
         sendButton.addActionListener(e -> sendMessage());
         uploadButton.addActionListener(e -> uploadFile());
-        updateButton.addActionListener(e -> checkForUpdates());
+        updateButton.addActionListener(e -> checkVersionWithServer());
         inputField.addActionListener(e -> sendMessage());
 
         JPanel bottomPanel = new JPanel(new BorderLayout());
@@ -89,6 +111,8 @@ public class ClientGUI {
                 } catch (IOException e) {
                     if (!isUpdating.get()) {
                         appendMessage("服务器连接断开: " + e.getMessage());
+                        checkVersionWithServer(); // 连接断开时主动检查版本
+                        reconnectToServer();
                     }
                 } finally {
                     closeConnection();
@@ -96,37 +120,63 @@ public class ClientGUI {
             }).start();
 
             appendMessage("已连接到服务器 " + SERVER_HOST + ":" + SERVER_PORT);
-            checkForUpdates();
+            // 连接成功后立即检查版本
+            checkVersionWithServer();
         } catch (IOException e) {
             appendMessage("连接服务器失败: " + e.getMessage());
         }
     }
 
-    private void checkForUpdates() {
-        SwingUtilities.invokeLater(() -> {
-            int choice = JOptionPane.showConfirmDialog(frame,
-                    "发现新版本 " + VersionInfo.NEW_VERSION + "，是否立即更新？\n(使用镜像加速下载)",
-                    "版本更新",
-                    JOptionPane.YES_NO_OPTION);
-
-            if (choice == JOptionPane.YES_OPTION) {
-                startDownload();
+    private void reconnectToServer() {
+        new Thread(() -> {
+            while (true) {
+                try {
+                    Thread.sleep(5000); // 5秒后重试
+                    socket = new Socket(SERVER_HOST, SERVER_PORT);
+                    out = new PrintWriter(socket.getOutputStream(), true);
+                    appendMessage("已重新连接到服务器");
+                    checkVersionWithServer(); // 重新连接后检查版本
+                    break;
+                } catch (Exception e) {
+                    appendMessage("重新连接服务器失败，5秒后重试...");
+                }
             }
-        });
+        }).start();
+    }
+
+    private void checkVersionWithServer() {
+        if (out != null) {
+            out.println("VERSION_CHECK|" + VersionInfo.CURRENT_VERSION);
+        }
+    }
+
+    private void checkForUpdates() {
+        int choice = JOptionPane.showConfirmDialog(frame,
+                "发现新版本 " + VersionInfo.NEW_VERSION + "，是否立即更新？",
+                "版本更新",
+                JOptionPane.YES_NO_OPTION);
+
+        if (choice == JOptionPane.YES_OPTION) {
+            startDownload();
+        }
     }
 
     private void handleServerResponse(String response) {
         if (response.startsWith("NEED_UPDATE|")) {
-            checkForUpdates();
+            String[] parts = response.split("\\|");
+            String serverVersion = parts[1];
+            if (VersionInfo.isNewerVersion(VersionInfo.CURRENT_VERSION, serverVersion)) {
+                SwingUtilities.invokeLater(this::checkForUpdates);
+            } else {
+                appendMessage("当前已是最新版本");
+            }
         } else if (response.equals("CURRENT_VERSION")) {
             appendMessage("当前已是最新版本");
         }
     }
 
     private void startDownload() {
-        // 创建下载进度对话框
         JDialog progressDialog = createProgressDialog();
-        // 开始下载并更新
         downloadAndUpdate(progressDialog);
     }
 
@@ -136,7 +186,7 @@ public class ClientGUI {
         dialog.setLocationRelativeTo(frame);
         dialog.setLayout(new BorderLayout());
 
-        JLabel label = new JLabel("正在通过镜像下载更新...", JLabel.CENTER);
+        JLabel label = new JLabel("正在下载更新...", JLabel.CENTER);
         JProgressBar progressBar = new JProgressBar(0, 100);
         progressBar.setStringPainted(true);
 
@@ -158,7 +208,6 @@ public class ClientGUI {
     }
 
     private synchronized void downloadAndUpdate(JDialog progressDialog) {
-        // 双重检查确保只有一个更新线程运行
         if (isUpdating.get()) {
             return;
         }
@@ -170,18 +219,15 @@ public class ClientGUI {
             try {
                 SwingUtilities.invokeLater(() -> progressDialog.setVisible(true));
 
-                // 获取当前JAR文件路径
-                String currentJarPath = Paths.get(ClientGUI.class.getProtectionDomain()
-                        .getCodeSource().getLocation().toURI()).toString();
+                // 创建目标目录
+                Path targetDir = Paths.get("D:\\TCP\\new");
+                Files.createDirectories(targetDir);
+                Path newJarPath = targetDir.resolve("TCP.jar");
 
-                // 创建唯一临时文件
-                Path tempDir = Files.createTempDirectory("TCP-update");
-                Path tempNewJar = tempDir.resolve("TCP-new.jar");
+                appendMessage("开始下载新版本: " + UPDATE_URL);
 
-                appendMessage("开始通过镜像下载新版本: " + MIRROR_URL);
-
-                // 带进度显示的下载
-                downloadFileWithProgress(MIRROR_URL, tempNewJar.toString(),
+                // 下载文件
+                downloadFileWithProgress(UPDATE_URL, newJarPath.toString(),
                         (progress) -> {
                             SwingUtilities.invokeLater(() -> {
                                 JProgressBar bar = (JProgressBar) ((JPanel) progressDialog.getContentPane()
@@ -191,17 +237,15 @@ public class ClientGUI {
                             });
                         });
 
-                // 创建更新脚本
-                Path updateScript = createUpdateScript(currentJarPath, tempNewJar.toString());
-
-                // 执行脚本并退出
-                appendMessage("准备重启应用完成更新...");
+                // 下载完成后启动新版本
+                appendMessage("下载完成，正在启动新版本...");
                 ProcessBuilder pb = new ProcessBuilder(
-                        System.getProperty("os.name").toLowerCase().contains("win") ? "cmd" : "bash",
-                        "/c",
-                        updateScript.toString()
+                        "java", "-jar", newJarPath.toString()
                 );
+                pb.directory(new File("D:\\TCP\\new"));
                 pb.start();
+
+                // 关闭当前应用
                 System.exit(0);
 
             } catch (Exception e) {
@@ -238,53 +282,6 @@ public class ClientGUI {
         } finally {
             connection.disconnect();
         }
-    }
-
-    private Path createUpdateScript(String currentJarPath, String newJarPath) throws IOException {
-        String timestamp = String.valueOf(System.currentTimeMillis());
-        Path updateScript = Paths.get("update_" + timestamp +
-                (System.getProperty("os.name").toLowerCase().contains("win") ? ".bat" : ".sh"));
-
-        String scriptContent;
-        if (System.getProperty("os.name").toLowerCase().contains("win")) {
-            scriptContent = String.format(
-                    "@echo off\r\n" +
-                            "timeout /t 3 >nul\r\n" +
-                            "del \"%s\"\r\n" +
-                            "move /Y \"%s\" \"%s\"\r\n" +
-                            "start \"\" \"%s\"\r\n" +
-                            "rmdir /s /q \"%s\"\r\n" +  // 删除临时目录
-                            "del \"%%~f0\"\r\n",
-                    currentJarPath,
-                    newJarPath,
-                    currentJarPath,
-                    currentJarPath,
-                    Paths.get(newJarPath).getParent().toString()
-            );
-        } else {
-            scriptContent = String.format(
-                    "#!/bin/bash\n" +
-                            "sleep 3\n" +
-                            "rm -f \"%s\"\n" +
-                            "mv -f \"%s\" \"%s\"\n" +
-                            "java -jar \"%s\" &\n" +
-                            "rm -rf \"%s\"\n" +  // 删除临时目录
-                            "rm -f \"$0\"\n",
-                    currentJarPath,
-                    newJarPath,
-                    currentJarPath,
-                    currentJarPath,
-                    Paths.get(newJarPath).getParent().toString()
-            );
-        }
-
-        Files.write(updateScript, scriptContent.getBytes());
-
-        if (!System.getProperty("os.name").toLowerCase().contains("win")) {
-            updateScript.toFile().setExecutable(true);
-        }
-
-        return updateScript;
     }
 
     private void sendMessage() {
@@ -335,7 +332,6 @@ public class ClientGUI {
         });
     }
 
-    // 进度监听接口
     private interface ProgressListener {
         void onProgressUpdate(int progress);
     }
