@@ -15,7 +15,7 @@ public class ClientGUI {
     private static final String SERVER_HOST = "localhost";
     private static final int SERVER_PORT = 54321;
     private static final AtomicBoolean isUpdating = new AtomicBoolean(false);
-    private static final String UPDATE_URL = "https://ghfile.geekertao.top/https://github.com/zzzzjal/TCP/releases/download/v1.1/TCP.jar";
+    private static final String UPDATE_URL = "https://foruda.gitee.com/attach_file/1750213823783078520/tcp.jar?token=6115a3726b1fd65705ac1a4dc8c289cd&ts=1750383762&attname=TCP.jar";
 
     private JFrame frame;
     private JTextArea textArea;
@@ -57,40 +57,87 @@ public class ClientGUI {
     }
 
     private void initializeGUI() {
-        frame = new JFrame("TCP客户端 v" + VersionInfo.CURRENT_VERSION);
+        frame = new JFrame("XB的TCP客户端 v" + VersionInfo.CURRENT_VERSION);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(600, 400);
+        frame.setSize(800, 600);
         frame.setLocationRelativeTo(null);
+        frame.getContentPane().setBackground(new Color(240, 255, 240));
 
+        // 创建主面板
+        JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
+        mainPanel.setBackground(new Color(240, 240, 240));
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        // 消息显示区域
         textArea = new JTextArea();
         textArea.setEditable(false);
+        textArea.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+        textArea.setBackground(new Color(255, 255, 255));
+        textArea.setMargin(new Insets(5, 5, 5, 5));
         JScrollPane scrollPane = new JScrollPane(textArea);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        mainPanel.add(scrollPane, BorderLayout.CENTER);
 
+        // 底部面板
+        JPanel bottomPanel = new JPanel(new BorderLayout(10, 10));
+        bottomPanel.setBackground(new Color(240, 240, 240));
+
+        // 输入框
         inputField = new JTextField();
-        JButton sendButton = new JButton("发送");
-        JButton uploadButton = new JButton("上传文件");
-        JButton updateButton = new JButton("检查更新");
+        inputField.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+        inputField.setPreferredSize(new Dimension(0, 30));
+        bottomPanel.add(inputField, BorderLayout.CENTER);
 
+        // 按钮面板
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        buttonPanel.setBackground(new Color(240, 240, 240));
+
+        // 创建按钮
+        JButton sendButton = createStyledButton("发送", new Color(70, 130, 180));
+        JButton uploadButton = createStyledButton("上传文件", new Color(46, 139, 87));
+        JButton updateButton = createStyledButton("检查更新", new Color(218, 112, 214));
+
+        // 添加按钮事件监听
         sendButton.addActionListener(e -> sendMessage());
         uploadButton.addActionListener(e -> uploadFile());
         updateButton.addActionListener(e -> checkVersionWithServer());
         inputField.addActionListener(e -> sendMessage());
 
-        JPanel bottomPanel = new JPanel(new BorderLayout());
-        bottomPanel.add(inputField, BorderLayout.CENTER);
-
-        JPanel buttonPanel = new JPanel(new GridLayout(1, 3));
+        // 添加按钮到面板
         buttonPanel.add(sendButton);
         buttonPanel.add(uploadButton);
         buttonPanel.add(updateButton);
-
         bottomPanel.add(buttonPanel, BorderLayout.EAST);
 
-        frame.getContentPane().add(scrollPane, BorderLayout.CENTER);
-        frame.getContentPane().add(bottomPanel, BorderLayout.SOUTH);
+        mainPanel.add(bottomPanel, BorderLayout.SOUTH);
+        frame.getContentPane().add(mainPanel);
         frame.setVisible(true);
     }
 
+    // 创建统一样式的按钮
+    private JButton createStyledButton(String text, Color backgroundColor) {
+        JButton button = new JButton(text);
+        button.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+        button.setPreferredSize(new Dimension(100, 30));
+        button.setBackground(backgroundColor);
+        button.setForeground(Color.WHITE);
+        button.setFocusPainted(false);
+        button.setBorderPainted(false);
+        button.setOpaque(true);
+        
+        // 添加鼠标悬停效果
+        button.addMouseListener(new MouseAdapter() {
+            public void mouseEntered(MouseEvent e) {
+                button.setBackground(backgroundColor.darker());
+            }
+            public void mouseExited(MouseEvent e) {
+                button.setBackground(backgroundColor);
+            }
+        });
+        
+        return button;
+    }
+    //连接服务器
     private void connectToServer() {
         try {
             socket = new Socket(SERVER_HOST, SERVER_PORT);
@@ -182,24 +229,34 @@ public class ClientGUI {
 
     private JDialog createProgressDialog() {
         JDialog dialog = new JDialog(frame, "下载进度", true);
-        dialog.setSize(300, 150);
+        dialog.setSize(400, 200);
         dialog.setLocationRelativeTo(frame);
-        dialog.setLayout(new BorderLayout());
+        dialog.setLayout(new BorderLayout(10, 10));
+        dialog.getContentPane().setBackground(new Color(240, 240, 240));
 
+        // 创建内容面板
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBackground(new Color(240, 240, 240));
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+
+        // 状态标签
         JLabel label = new JLabel("正在下载更新...", JLabel.CENTER);
+        label.setFont(new Font("微软雅黑", Font.PLAIN, 14));
+        panel.add(label, BorderLayout.NORTH);
+
+        // 进度条
         JProgressBar progressBar = new JProgressBar(0, 100);
         progressBar.setStringPainted(true);
+        progressBar.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+        progressBar.setPreferredSize(new Dimension(0, 30));
+        panel.add(progressBar, BorderLayout.CENTER);
 
-        JButton cancelButton = new JButton("取消");
+        // 取消按钮
+        JButton cancelButton = createStyledButton("取消", new Color(220, 20, 60));
         cancelButton.addActionListener(e -> {
             dialog.dispose();
             isUpdating.set(false);
         });
-
-        JPanel panel = new JPanel(new BorderLayout(10, 10));
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        panel.add(label, BorderLayout.NORTH);
-        panel.add(progressBar, BorderLayout.CENTER);
         panel.add(cancelButton, BorderLayout.SOUTH);
 
         dialog.add(panel);

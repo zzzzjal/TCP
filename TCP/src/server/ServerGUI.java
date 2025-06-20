@@ -75,32 +75,68 @@ public class ServerGUI {
 
     // 初始化GUI界面
     private void initializeGUI() {
-        frame = new JFrame("TCP Server");
-        frame.setBounds(100, 100, 600, 550);
+        frame = new JFrame("XB的服务器监控面板");
+        frame.setBounds(100, 100, 800, 600);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.getContentPane().setLayout(new BorderLayout(0, 0));
-        frame.setLocationRelativeTo(null);  // 窗口居中
+        frame.getContentPane().setLayout(new BorderLayout(10, 10));
+        frame.setLocationRelativeTo(null);
+
+        // 设置整体背景色
+        frame.getContentPane().setBackground(new Color(240, 240, 240));
+
+        // 创建顶部状态面板
+        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        statusPanel.setBackground(new Color(240, 240, 240));
+        JLabel statusLabel = new JLabel("服务器状态: 正在运行中");
+        statusLabel.setFont(new Font("微软雅黑", Font.BOLD, 14));
+        statusPanel.add(statusLabel);
+        frame.getContentPane().add(statusPanel, BorderLayout.NORTH);
 
         // 消息显示区域
         textArea = new JTextArea();
         textArea.setEditable(false);
-        frame.getContentPane().add(new JScrollPane(textArea), BorderLayout.CENTER);
+        textArea.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+        textArea.setBackground(new Color(255, 255, 255));
+        textArea.setMargin(new Insets(5, 5, 5, 5));
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        frame.getContentPane().add(scrollPane, BorderLayout.CENTER);
 
         // 底部面板
-        JPanel bottomPanel = new JPanel(new BorderLayout(5, 5));
+        JPanel bottomPanel = new JPanel(new BorderLayout(10, 10));
+        bottomPanel.setBackground(new Color(240, 240, 240));
+        bottomPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+
+        // 输入框
         sendField = new JTextField();
-        sendButton = new JButton("发送给所有客户端");
+        sendField.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+        sendField.setPreferredSize(new Dimension(0, 30));
         bottomPanel.add(sendField, BorderLayout.CENTER);
-        bottomPanel.add(sendButton, BorderLayout.EAST);
+
+        // 按钮面板
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        buttonPanel.setBackground(new Color(240, 240, 240));
+        
+        sendButton = new JButton("发送给所有的客户端");
+        sendButton.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+        sendButton.setPreferredSize(new Dimension(150, 30));
+        sendButton.setBackground(new Color(70, 130, 180));
+        sendButton.setForeground(Color.WHITE);
+        sendButton.setFocusPainted(false);
+        
+        buttonPanel.add(sendButton);
+        bottomPanel.add(buttonPanel, BorderLayout.EAST);
+
         frame.getContentPane().add(bottomPanel, BorderLayout.SOUTH);
 
         // 发送按钮事件监听
         sendButton.addActionListener(e -> sendBroadcastMessage());
+        sendField.addActionListener(e -> sendBroadcastMessage());
 
         // 窗口关闭事件监听
         frame.addWindowListener(new WindowAdapter() {
             public void windowClosing(WindowEvent e) {
-                shutdownServer();  // 关闭服务器
+                shutdownServer();
             }
         });
     }
